@@ -1,0 +1,59 @@
+version: "3"
+services:
+  omini-backend:
+    image: registry.cn-hangzhou.aliyuncs.com/omini/backend:latest
+    container_name: omini-backend
+    ports:
+      - "${BACKEND_PORT}:8000"
+    environment:
+      - TZ=Asia/Shanghai
+      - REDIS_HOST=redis
+      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS}
+    depends_on:
+      - redis
+    networks:
+      - omini_network
+
+  mysql:
+    image: mysql:8.0
+    container_name: omini-mysql
+    ports:
+      - "${MYSQL_PORT_EXTERNAL}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DB}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - omini_network
+  redis:
+    image: redis:6.2
+    container_name: omini-redis
+    ports:
+      - "${REDIS_PORT_EXTERNAL}:6379"
+    environment:
+      - TZ=Asia/Shanghai
+      - REDIS_PASSWORD=${REDIS_PASSWORD} # 确保这里的密码正确无误
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    networks:
+      - omini_network
+
+  omini-web:
+    image: registry.cn-hangzhou.aliyuncs.com/omini/frontend:latest
+    container_name: omini-web
+    ports:
+      - "${FRONTEND_PORT}:3000"
+    environment:
+      - TZ=Asia/Shanghai
+      - VITE_API_URL=${VITE_API_URL}
+      - VITE_API_WS=${VITE_API_WS}
+      - VITE_APP_NAME=${VITE_APP_NAME}
+      - VITE_API_VERSION=${VITE_API_VERSION}
+    networks:
+      - omini_network
+    entrypoint: ["/entrypoint.sh"] # 使用 entrypoint.sh 作为启动脚本
+
+networks:
+  omini_network:
