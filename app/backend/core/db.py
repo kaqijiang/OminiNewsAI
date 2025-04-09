@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel, select
 
 from api.crud import create_user
-from api.models import User, UserCreate
+from api.models import User, UserCreate, NewsCategories
 from core.config import settings, mysql_settings, dataBase_settings
 from utils.logging_config import LogManager
 
@@ -61,17 +61,34 @@ async def init_create_table():
     # 初始化超级用户
     logger.info("检查并可能创建超级用户...")
     async with AsyncSessionLocal() as session:
-        # 在事务环境中运行查询
-        async with session.begin():
-            result = await session.execute(select(User).where(User.email == settings.FIRST_SUPERUSER))
-            user = result.scalars().first()
-            if not user:
-                logger.info('超级用户不存在，正在创建...')
-                user_in = UserCreate(
-                    email=settings.FIRST_SUPERUSER,
-                    password=settings.FIRST_SUPERUSER_PASSWORD,
-                    is_superuser=True
-                )
-                # 调用 CRUD 操作创建用户
-                user = await create_user(session=session, user_create=user_in)
-                logger.info('超级用户创建成功。')
+        result = await session.execute(select(User).where(User.email == settings.FIRST_SUPERUSER))
+        user = result.scalars().first()
+        if not user:
+            logger.info('超级用户不存在，正在创建...')
+            user_in = UserCreate(
+                email=settings.FIRST_SUPERUSER,
+                password=settings.FIRST_SUPERUSER_PASSWORD,
+                is_superuser=True
+            )
+            # 调用 CRUD 操作创建用户
+            user = await create_user(session=session, user_create=user_in)
+            logger.info('超级用户创建成功。')
+        
+        # 初始化新闻分类
+        logger.info("检查并初始化新闻分类...")
+        result = await session.execute(select(NewsCategories))
+        categories = result.scalars().all()
+        if not categories:
+            logger.info('新闻分类不存在，正在创建...')
+            default_categories = [
+                {"category_name": "AI", "category_value": "AI"},
+                {"category_name": "汽车", "category_value": "汽车"},
+                {"category_name": "科技", "category_value": "科技"},
+                {"category_name": "创业", "category_value": "创业"},
+                {"category_name": "金融", "category_value": "金融"}
+            ]
+            for category in default_categories:
+                db_category = NewsCategories(**category)
+                session.add(db_category)
+            await session.commit()
+            logger.info('新闻分类初始化成功。')

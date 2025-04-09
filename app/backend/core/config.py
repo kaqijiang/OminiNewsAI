@@ -98,8 +98,48 @@ class Settings(BaseSettings):
 
     EMAIL_USERNAME: str = Field(..., env="EMAIL_USERNAME")
     EMAIL_PASSWORD: str = Field(..., env="EMAIL_PASSWORD")
+    
+    # OpenAI API配置
+    OPENAI_API_KEY: str = Field("sk-", env="OPENAI_API_KEY")
 
     BACKEND_PORT: int = Field(default=8000, env="BACKEND_PORT")
+    
+    # RSS订阅源配置
+    RSS_FEEDS: list[dict] = Field(
+        default=[
+            {
+                "name": "360AI News", 
+                "url": "https://www.google.com/alerts/feeds/12675972122981091542/10275026181448372090",
+                "category": "AI资讯"
+            },
+            {
+                "name": "Claude News", 
+                "url": "https://www.google.com/alerts/feeds/12675972122981091542/10815484404368595628",
+                "category": "AI资讯"
+            },
+            {
+                "name": "GPT News",
+                "url": "https://www.google.com/alerts/feeds/12675972122981091542/11259852593024214391",
+                "category": "AI资讯"
+            },
+            {
+                "name": "OpenAI News",
+                "url": "https://www.google.com/alerts/feeds/12675972122981091542/9649448576262545974",
+                "category": "AI资讯"
+            },
+            {
+                "name": "上汽大众",
+                "url": "https://www.google.com/alerts/feeds/12675972122981091542/3216593478712850396",
+                "category": "汽车资讯"
+            },
+            {
+                "name": "中医理疗",
+                "url": "https://www.google.com/alerts/feeds/12675972122981091542/4060774748412242252",
+                "category": "健康和医疗"
+            }
+        ],
+        env="RSS_FEEDS"
+    )
 
     # 计算服务器的完整主机URL
     @computed_field

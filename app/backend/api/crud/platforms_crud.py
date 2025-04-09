@@ -1,6 +1,7 @@
 from typing import List, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
+import time
 
 from api.models import PlatformConfig
 from api.models.platforms_model import PlatformConfigUpdate, PlatformConfigInDBBase
@@ -30,7 +31,19 @@ async def get_platforms_by_user(*, session: AsyncSession, user: str) -> Optional
     # 异步执行查询
     result = await session.execute(statement)
     # 获取查询结果的第一条记录
-    return result.scalars().first()
+    platform = result.scalars().first()
+    
+    # 如果没有找到配置，创建一个新的
+    if not platform:
+        platform = PlatformConfig(
+            platform_name=user,
+            create_time=int(time.time())
+        )
+        session.add(platform)
+        await session.commit()
+        await session.refresh(platform)
+        
+    return platform
 
 # 获取所有平台配置，支持分页
 async def get_all_platformss(*, session: AsyncSession, skip: int = 0, limit: int = 10) -> List[PlatformConfig]:

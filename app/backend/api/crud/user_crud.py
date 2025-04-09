@@ -10,7 +10,6 @@ async def create_user(*, session: Session, user_create: UserCreate) -> User:
     )
     session.add(db_obj)
     await session.commit()
-    await session.refresh(db_obj)
     return db_obj
 
 async def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> Any:

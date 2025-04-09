@@ -1,6 +1,7 @@
 import time
+import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from api.crud.platforms_crud import get_platforms_by_user
 from api.deps import SessionDep, get_current_active_superuser
@@ -9,11 +10,30 @@ from api.models import PlatformConfig, PlatformConfigUpdate, User
 
 from api.deps import get_redis
 from core.get_redis import RedisUtil
+
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
 @router.get("/getByUser", response_model=PlatformConfig, dependencies=[Depends(get_current_active_superuser)])
 async def get_platforms_by_ids(session: SessionDep, current_superuser: User = Depends(get_current_active_superuser)):
-    db_platforms = await get_platforms_by_user(session=session, user=current_superuser.email)
-    return db_platforms
+    try:
+        logger.info(f"获取用户 {current_superuser.email} 的平台配置")
+        db_platforms = await get_platforms_by_user(session=session, user=current_superuser.email)
+        if not db_platforms:
+            logger.warning(f"用户 {current_superuser.email} 的平台配置不存在，将创建新配置")
+            # 如果没有配置，创建一个基本配置
+            platform_create = PlatformConfigUpdate(
+                platform_name=current_superuser.email,
+                create_time=int(time.time())
+            )
+            db_platforms = await create_platforms(session=session, platforms_create=platform_create)
+            logger.info(f"已为用户 {current_superuser.email} 创建新的平台配置")
+        
+        logger.info(f"成功获取用户 {current_superuser.email} 的平台配置: {db_platforms}")
+        return db_platforms
+    except Exception as e:
+        logger.error(f"获取平台配置时出错: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取平台配置失败: {str(e)}")
 
 @router.get("/getAll", response_model=PlatformConfig, dependencies=[Depends(get_current_active_superuser)])
 async def get_platforms_by_idss(session: SessionDep):

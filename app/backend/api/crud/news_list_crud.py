@@ -26,6 +26,35 @@ async def get_all_not_generate_news(session: AsyncSession) -> list[NewsList]:
     news_items = result.scalars().all()  # 确保获取的是一个列表
 
     return news_items
+
+async def check_news_exists(session: AsyncSession, title: str, url: str) -> bool:
+    """
+    检查给定标题和URL的新闻是否已存在于数据库中
+    
+    Args:
+        session: 数据库会话
+        title: 新闻标题
+        url: 新闻URL
+    
+    Returns:
+        bool: 如果新闻已存在返回True，否则返回False
+    """
+    # 构建查询，先检查URL（更精确）
+    query = select(NewsList).where(NewsList.source_url == url)
+    result = await session.execute(query)
+    news_item = result.scalars().first()
+    
+    # 如果URL匹配则直接返回True
+    if news_item:
+        return True
+    
+    # 否则检查标题是否匹配
+    query = select(NewsList).where(NewsList.title == title)
+    result = await session.execute(query)
+    news_item = result.scalars().first()
+    
+    return news_item is not None
+
 async def create_news_list(session: AsyncSession, news_list_create: NewsListCreate) -> NewsList:
     db_obj = NewsList.from_orm(news_list_create)
     session.add(db_obj)     # 构建插入的SQL语句

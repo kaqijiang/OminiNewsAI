@@ -25,7 +25,6 @@
                             </button>
                         </div>
                     </div> -->
-                    <a class="login-button" rel="nofollow" @click="openLogin">登录</a>
                 </div>
             </div>
 
@@ -72,7 +71,6 @@
                             </ul>
                         </div>
                     </div>
-                    <a class="login-button" rel="nofollow" @click="openLogin">登录</a>
                 </div>
             </div>
 
@@ -250,7 +248,6 @@
             </div>
         </div>
     </div>
-    <LoginModal ref="loginModal" />
 
 
 </template>
@@ -258,7 +255,6 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import useHome from '@/composables/useHome';
-import { LoginModal } from '@/components';
 import { useSearch } from '@/composables/useSearch'; // 确保正确导入 useSearch
 
 // 使用 useSearch 中的状态和方法
@@ -269,7 +265,6 @@ const {
 } = useSearch();
 
 const loading = ref(true);
-const loginModal = ref(null);
 
 // 使用 useHome 中的状态和方法
 const {
@@ -286,12 +281,6 @@ const {
     fetchWeather,
     hotSearches
 } = useHome();
-
-const openLogin = () => {
-    if (loginModal.value) {
-        loginModal.value.openLoginModal();
-    }
-};
 
 // 格式化时间戳为易读的日期和时间
 const formatDate = (timestamp) => {
