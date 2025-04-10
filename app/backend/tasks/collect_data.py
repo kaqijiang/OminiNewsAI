@@ -5,7 +5,7 @@ from sqlmodel import select
 
 from loguru import logger
 
-from api.crud.news_list_crud import get_all_not_generate_news, update_news_item, create_news_list, check_news_exists
+from api.crud.news_list_crud import get_all_not_generate_news, update_news_item, create_news_list, check_news_exists, check_news_exists_by_rss_id
 from api.models import PlatformConfig, NewsListCreate, NewsCategories
 from core.config import settings
 from core.db import AsyncSessionLocal
@@ -16,18 +16,10 @@ from tasks.get_rss_news import get_news_from_rss
 from utils.nodriver_parse import get_content_from_page
 from update_categories_rss import REDIS_RSS_FEEDS_KEY, REDIS_RSS_CATEGORIES_KEY, update_categories_rss
 
-# Redis中存储最近处理过的新闻条目的键名
-REDIS_RECENT_NEWS_KEY = "recent_news_items"
+# Redis中存储RSS条目ID的键名
+REDIS_RSS_IDS_KEY = "recent_rss_ids"
 # 记录最近新闻的过期时间（秒）
-REDIS_RECENT_NEWS_EXPIRE = 604800  # 7天
-
-
-def generate_news_hash(title: str, url: str) -> str:
-    """
-    根据新闻标题和URL生成唯一哈希值
-    """
-    content = f"{title}_{url}".encode('utf-8')
-    return hashlib.md5(content).hexdigest()
+REDIS_RECENT_NEWS_EXPIRE = 604800
 
 
 async def collect_data(session: AsyncSession):
@@ -78,8 +70,8 @@ async def collect_data(session: AsyncSession):
     else:
         logger.info(f"从Redis缓存中获取到 {len(rss_urls)} 个RSS订阅源")
     
-    # 获取最近处理过的新闻哈希值列表（用于去重）
-    recent_news_hashes = await RedisUtil.get_key(redis, REDIS_RECENT_NEWS_KEY) or []
+    # 获取最近处理过的RSS条目ID列表（用于去重）
+    recent_rss_ids = await RedisUtil.get_key(redis, REDIS_RSS_IDS_KEY) or []
     
     # 获取RSS订阅新闻
     rss_items = get_news_from_rss(rss_urls)
@@ -111,8 +103,8 @@ async def collect_data(session: AsyncSession):
     
     logger.info(f"获取完毕，总计 {len(new_items)} 条新闻")
 
-    # 用于记录新处理的新闻哈希值
-    processed_hashes = []
+    # 用于记录新处理的RSS条目ID
+    processed_rss_ids = []
     # 统计新增和重复的新闻数量
     new_count = 0
     duplicate_count = 0
@@ -121,24 +113,31 @@ async def collect_data(session: AsyncSession):
         try:
             title = new_item.get('title')
             url = new_item.get('url')
+            rss_entry_id = new_item.get('rss_entry_id')  # 获取RSS条目ID
             
-            # 生成新闻的哈希值
-            news_hash = generate_news_hash(title, url)
-            
-            # 检查是否是最近处理过的新闻
-            if news_hash in recent_news_hashes:
-                logger.info(f"跳过重复新闻(Redis缓存): {title}")
-                duplicate_count += 1
-                continue
-            
-            # 检查数据库中是否已存在相同的新闻（基于标题和URL）
-            exists = await check_news_exists(session, title, url)
-            if exists:
-                logger.info(f"跳过重复新闻(数据库): {title}")
-                # 将哈希值添加到Redis缓存中，提高下次去重效率
-                processed_hashes.append(news_hash)
-                duplicate_count += 1
-                continue
+            # 首先，如果有RSS条目ID，检查Redis和数据库
+            if rss_entry_id:
+                # 检查Redis中是否已存在该RSS ID
+                if rss_entry_id in recent_rss_ids:
+                    logger.info(f"跳过重复新闻(Redis RSS ID): {title}")
+                    duplicate_count += 1
+                    continue
+                
+                # 检查数据库中是否已存在该RSS ID
+                exists_by_id = await check_news_exists_by_rss_id(session, rss_entry_id)
+                if exists_by_id:
+                    logger.info(f"跳过重复新闻(数据库RSS ID): {title}")
+                    # 将RSS ID添加到Redis缓存，提高下次去重效率
+                    processed_rss_ids.append(rss_entry_id)
+                    duplicate_count += 1
+                    continue
+            else:
+                # 对于没有RSS ID的新闻（非RSS源），通过标题和URL检查
+                exists = await check_news_exists(session, title, url)
+                if exists:
+                    logger.info(f"跳过重复新闻(数据库标题/URL): {title}")
+                    duplicate_count += 1
+                    continue
             
             # 对于RSS新闻，可能已经有摘要内容，可以选择直接使用或获取完整内容
             if 'summary' in new_item and new_item.get('summary'):
@@ -160,33 +159,39 @@ async def collect_data(session: AsyncSession):
                 continue
 
             insert_data = NewsListCreate()
-            insert_data.title = title
+            insert_data.original_title = title
             insert_data.source_url = url
             insert_data.original_content = content
             insert_data.create_time = int(time.time())
             insert_data.type = new_item.get('keyword') or new_item.get('category', '未分类')
+            
+            # 如果有RSS条目ID，保存到数据库
+            if rss_entry_id:
+                insert_data.rss_entry_id = rss_entry_id
+                logger.info(f"保存RSS条目ID: {rss_entry_id}")
 
             # 执行插入操作
-            result = await create_news_list(session=session, news_list_create=insert_data)  # 确保这是一个异步操作
+            result = await create_news_list(session=session, news_list_create=insert_data)
             if result:
-                logger.success(f"数据插入成功！{insert_data.title}")
-                # 记录已处理的新闻哈希值
-                processed_hashes.append(news_hash)
+                logger.success(f"数据插入成功！{insert_data.original_title}")
+                # 如果有RSS ID，记录下来
+                if rss_entry_id:
+                    processed_rss_ids.append(rss_entry_id)
                 new_count += 1
             else:
                 logger.error(f"数据插入失败。{insert_data}")
         except Exception as e:
             logger.error(f"处理新闻项目时出错: {e}, URL: {new_item.get('url', 'Unknown URL')}")
     
-    # 更新Redis中的最近处理新闻列表
-    if processed_hashes:
-        # 合并新旧哈希值列表，保留最近的记录（限制数量为1000条）
-        all_hashes = processed_hashes + recent_news_hashes
-        if len(all_hashes) > 1000:
-            all_hashes = all_hashes[:1000]
+    # 更新Redis中的RSS条目ID列表
+    if processed_rss_ids:
+        # 合并新旧RSS ID列表，保留最近的记录（限制数量为1000条）
+        all_rss_ids = processed_rss_ids + recent_rss_ids
+        if len(all_rss_ids) > 1000:
+            all_rss_ids = all_rss_ids[:1000]
         
         # 更新Redis缓存
-        await RedisUtil.set_key(redis, REDIS_RECENT_NEWS_KEY, all_hashes, expire=REDIS_RECENT_NEWS_EXPIRE)
+        await RedisUtil.set_key(redis, REDIS_RSS_IDS_KEY, all_rss_ids, expire=REDIS_RECENT_NEWS_EXPIRE)
     
     # 关闭Redis连接
     await redis.close()
@@ -200,7 +205,7 @@ async def run_collect_data():
     """
     async with AsyncSessionLocal() as session:
         await collect_data(session)  # 传递 app 实例
-        await generate_news(session)
+        # await generate_news(session)
 
 
 
@@ -208,7 +213,6 @@ async def generate_news(session: AsyncSession, redis=None):
 
     if not redis:
         redis = await RedisUtil.create_redis_pool()
-    # 这里你需要获取需要处理的数据，可以根据你的逻辑来实现
     platforms_config: dict = await RedisUtil.get_key(redis, 'platforms_config')
     
     # 错误处理：如果Redis中没有配置，使用默认配置

@@ -5,11 +5,12 @@ from pydantic import BaseModel
 from sqlmodel import SQLModel, Field
 
 class NewsListBase(SQLModel):
-    title: Optional[str] = Field(default=None, max_length=550)
+    original_title: Optional[str] = Field(default=None, max_length=550)
     processed_title: Optional[str] = Field(default=None, max_length=550)
     original_content: Optional[str] = None
     processed_content: Optional[str] = None
     source_url: Optional[str] = Field(default=None, max_length=550)
+    rss_entry_id: Optional[str] = Field(default=None, max_length=255, index=True)
     create_time: int = Field(default=0)
     type: Optional[str] = Field(default=None, max_length=550)
     generated: int = Field(default=0)

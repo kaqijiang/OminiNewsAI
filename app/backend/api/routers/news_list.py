@@ -1,5 +1,6 @@
 import asyncio
 from random import sample
+import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from api.crud.news_list_crud import update_items_send_status, update_news_item, get_all_news_list
@@ -26,27 +27,47 @@ router = APIRouter()
 
 @router.get("/readNewsByCategory")
 async def read_news_by_category(
-        session: SessionDep,  # 依赖注入，作为默认参数
-        category_name: str,  # 非默认参数在前
-        skip: int = 0,  # 默认参数
-        limit: int = 100,  # 默认参数
-        redis=Depends(get_redis)  # 依赖注入，作为默认参数
+        session: SessionDep,
+        category_name: str,
+        skip: int = 0,
+        limit: int = 20,
+        redis=Depends(get_redis)
 ):
     """根据类别获取内容列表（支持分页）"""
-    # 生成缓存的键，包含类别名、页码（skip）和每页数量（limit）
-    cache_key = f"news_by_category_{category_name}"
-
-    # 尝试从 Redis 中获取缓存数据
-    cached_news = await RedisUtil.get_key(redis, cache_key)
-    if cached_news:
-        return cached_news
-
-    # 如果缓存不存在，从数据库获取数据
-    news_list = await get_news_by_category(session=session, name=category_name, skip=skip, limit=limit)
-
-    # 将结果存入 Redis，并设置过期时间（如 3600 秒）
-    await RedisUtil.set_key(redis, cache_key, news_list, expire=3600)
-    return news_list
+    # 优先从数据库获取总数，并缓存
+    total_key = f"news_by_category_total_{category_name}"
+    cached_total = await RedisUtil.get_key(redis, total_key)
+    
+    if cached_total is None:
+        # 如果总数不存在，从数据库获取总数
+        total = await get_news_count_by_category(session=session, name=category_name)
+        await RedisUtil.set_key(redis, total_key, total, expire=3600)
+    else:
+        total = cached_total
+    
+    # 生成当前分页的缓存键
+    page_key = f"news_by_category_{category_name}_{skip}_{limit}"
+    
+    # 尝试从Redis获取当前分页数据
+    cached_page = await RedisUtil.get_key(redis, page_key)
+    
+    if cached_page is not None:
+        # 如果缓存存在，直接返回
+        return {
+            "data": cached_page,
+            "total": total
+        }
+    
+    # 缓存不存在，从数据库获取当前分页数据
+    news_items = await get_news_by_category(session=session, name=category_name, skip=skip, limit=limit)
+    
+    # 缓存当前分页数据，设置较短的过期时间
+    await RedisUtil.set_key(redis, page_key, news_items, expire=300)  # 5分钟过期
+    
+    return {
+        "data": news_items,
+        "total": total
+    }
 
 
 @router.get("/hotNewsItems")

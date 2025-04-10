@@ -16,21 +16,6 @@ from core.get_redis import RedisUtil
 from sqlmodel import select, update
 from api.models import NewsCategories
 
-# RSS源和对应类别映射
-RSS_CATEGORY_MAPPING = {
-    # AI资讯类
-    "https://www.google.com/alerts/feeds/12675972122981091542/10275026181448372090": {"name": "360AI News", "category_name": "AI资讯", "category_value": "360ai"},
-    "https://www.google.com/alerts/feeds/12675972122981091542/10815484404368595628": {"name": "Claude News", "category_name": "AI资讯", "category_value": "claude"},
-    "https://www.google.com/alerts/feeds/12675972122981091542/11259852593024214391": {"name": "GPT News", "category_name": "AI资讯", "category_value": "GPT"},
-    "https://www.google.com/alerts/feeds/12675972122981091542/9649448576262545974": {"name": "OpenAI News", "category_name": "AI资讯", "category_value": "openai"},
-    
-    # 汽车资讯类
-    "https://www.google.com/alerts/feeds/12675972122981091542/3216593478712850396": {"name": "上汽大众", "category_name": "汽车资讯", "category_value": "上汽大众"},
-    
-    # 健康和医疗类
-    "https://www.google.com/alerts/feeds/12675972122981091542/4060774748412242252": {"name": "中医理疗", "category_name": "健康和医疗", "category_value": "中医理疗"}
-}
-
 # Redis缓存键名
 REDIS_RSS_FEEDS_KEY = "rss_feeds"
 REDIS_RSS_CATEGORIES_KEY = "rss_categories"
@@ -58,26 +43,13 @@ async def update_categories_rss():
         rss_urls = []
         rss_categories = {}
         
-        for rss_url, info in RSS_CATEGORY_MAPPING.items():
-            category_value = info["category_value"]
-            
-            if category_value in category_map:
-                cat_id = category_map[category_value]
-                logger.info(f"更新类别 '{category_value}' (ID: {cat_id}) 的RSS订阅源: {rss_url}")
-                
-                # 更新数据库
-                stmt = update(NewsCategories).where(NewsCategories.id == cat_id).values(rss_feed_url=rss_url)
-                await session.execute(stmt)
+        # 遍历所有类别，收集有RSS订阅源的类别
+        for category in categories:
+            if category.rss_feed_url:
+                logger.info(f"找到RSS订阅源: {category.category_name} ({category.category_value}): {category.rss_feed_url}")
+                rss_urls.append(category.rss_feed_url)
+                rss_categories[category.rss_feed_url] = category.category_name
                 updated_count += 1
-                
-                # 收集用于Redis的数据
-                rss_urls.append(rss_url)
-                rss_categories[rss_url] = info["category_name"]
-            else:
-                logger.warning(f"找不到类别: {category_value}, 无法更新其RSS订阅源")
-        
-        # 提交数据库事务
-        await session.commit()
         
         # 更新Redis缓存
         logger.info(f"正在更新Redis缓存...")

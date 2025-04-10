@@ -3,7 +3,7 @@ from random import sample
 from typing import List, Optional, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select, desc
+from sqlmodel import select, desc, func
 from api.models import NewsList, NewsListCreate, NewsListUpdate, NewsCategories
 
 
@@ -49,7 +49,28 @@ async def check_news_exists(session: AsyncSession, title: str, url: str) -> bool
         return True
     
     # 否则检查标题是否匹配
-    query = select(NewsList).where(NewsList.title == title)
+    query = select(NewsList).where(NewsList.original_title == title)
+    result = await session.execute(query)
+    news_item = result.scalars().first()
+    
+    return news_item is not None
+
+async def check_news_exists_by_rss_id(session: AsyncSession, rss_entry_id: str) -> bool:
+    """
+    检查给定RSS条目ID的新闻是否已存在于数据库中
+    
+    Args:
+        session: 数据库会话
+        rss_entry_id: RSS条目的唯一ID
+    
+    Returns:
+        bool: 如果新闻已存在返回True，否则返回False
+    """
+    if not rss_entry_id:
+        return False
+        
+    # 构建查询，通过RSS条目ID查询
+    query = select(NewsList).where(NewsList.rss_entry_id == rss_entry_id)
     result = await session.execute(query)
     news_item = result.scalars().first()
     
@@ -134,7 +155,6 @@ List[NewsList]:
             select(NewsList)
             .where(
                 NewsList.type.in_(category_subquery),
-                NewsList.generated == 1,
                 NewsList.create_time >= yesterday_midnight_timestamp
             )
             .order_by(desc(NewsList.id))
@@ -146,7 +166,6 @@ List[NewsList]:
         query = (
             select(NewsList)
             .where(
-                NewsList.generated == 1,
                 NewsList.create_time >= yesterday_midnight_timestamp
             )
             .order_by(desc(NewsList.id))
@@ -179,7 +198,7 @@ async def get_news_by_category(*, session: AsyncSession, name: str, skip: int = 
         select(NewsList)
         .where(
             NewsList.type.in_(category_subquery),
-            NewsList.generated == 1,
+            # NewsList.generated == 1,
             NewsList.create_time >= yesterday_midnight_timestamp
         )
         .order_by(desc(NewsList.id))
@@ -190,6 +209,11 @@ async def get_news_by_category(*, session: AsyncSession, name: str, skip: int = 
     # 执行查询并获取结果
     result = await session.execute(query)
     news_items = result.scalars().all()
+
+    # 打印调试信息
+    # logger.info(f"查询类别 '{name}' 的新闻，找到 {len(news_items)} 条记录")
+    # logger.info(f"SQL查询: {query}")
+    # logger.info(f"子查询结果: {category_subquery}")
 
     return news_items
 
@@ -217,3 +241,29 @@ async def fetch_all_hot_news(*, session: AsyncSession, limit: int = 10) -> List[
         news_items = sample(news_items, limit)
 
     return news_items
+
+async def get_news_count_by_category(*, session: AsyncSession, name: str) -> int:
+    """获取指定类别的新闻总数"""
+    # 计算昨天午夜的时间戳
+    yesterday_midnight = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    yesterday_midnight_timestamp = int(yesterday_midnight.timestamp())
+
+    # 子查询：根据 category_name 获取 category_value
+    category_subquery = (
+        select(NewsCategories.category_value)
+        .filter(NewsCategories.category_name == name)
+        .subquery()
+    )
+
+    # 查询总数
+    count_query = (
+        select(func.count())
+        .select_from(NewsList)
+        .where(
+            NewsList.type.in_(category_subquery),
+            NewsList.create_time >= yesterday_midnight_timestamp
+        )
+    )
+
+    result = await session.execute(count_query)
+    return result.scalar()

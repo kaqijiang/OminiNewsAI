@@ -57,6 +57,15 @@ def parse_rss_feed(xml_content: str) -> List[Dict[str, Any]]:
             try:
                 item = {}
                 
+                # 提取RSS条目ID
+                id_element = entry.find('atom:id', ns)
+                if id_element is not None and id_element.text is not None:
+                    # 如果ID是类似 "tag:google.com,2013:googlealerts/feed:17848012798155773345" 的格式
+                    # 只提取数字部分作为ID
+                    if ':' in id_element.text:
+                        short_id = id_element.text.split(':')[-1]
+                        item['rss_entry_id'] = short_id
+                
                 # 提取标题（去除HTML标签）
                 title_element = entry.find('atom:title', ns)
                 if title_element is not None and title_element.text is not None:

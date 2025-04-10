@@ -117,7 +117,6 @@
                                                     </div>
                                                 </div>
                                             </li>
-
                                         </ul>
                                     </div>
                                 </div>
@@ -126,34 +125,33 @@
                                         v-for="(article, index) in newsListData" :key="index">
                                         <div class="feed-card-article multi-cover">
                                             <div class="feed-card-article-l">
-                                                <!-- 1. 显示文章序号 -->
                                                 <span class="article-index">{{ index + 1 }}.</span>
-
-                                                <!-- 2. 显示处理后的标题，点击跳转到原文 -->
                                                 <a class="feed-card-article-title" :href="article.source_url"
                                                     rel="nofollow" target="_blank" :title="article.title">
-                                                    {{ article.processed_title }}
+                                                    {{ article.processed_title || article.original_title }}
                                                 </a>
-
-                                                <!-- 3. 显示内容 -->
                                                 <div class="article-content">
-                                                    {{ article.processed_content }}
+                                                    {{ article.processed_content || article.original_content.slice(0,
+                                                        200) }}
                                                 </div>
-
-                                                <!-- 4. 显示时间和来源 -->
                                                 <div class="article-meta">
                                                     <span class="article-time">{{ formatDate(article.create_time)
                                                         }}</span> |
                                                     <span class="article-source">{{ article.type }}</span>
-                                                    <!-- |<span class="article-source">{{ '内容由AI总结，点击标题跳转原文' }}</span> -->
                                                 </div>
                                             </div>
                                             <div class="feed-card-article-r">
-                                                <!-- 如果存在图片链接，显示图片 -->
                                                 <img v-if="article.image" :src="article.image" alt="文章封面"
                                                     class="cover-image">
                                             </div>
                                         </div>
+                                    </div>
+                                    <!-- 加载更多提示 -->
+                                    <div v-if="loading" class="loading-more">
+                                        加载中...
+                                    </div>
+                                    <div v-else-if="!hasMore" class="no-more">
+                                        没有更多内容了
                                     </div>
                                 </div>
                             </div>
@@ -253,9 +251,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
-import useHome from '@/composables/useHome';
-import { useSearch } from '@/composables/useSearch'; // 确保正确导入 useSearch
+import { ref, onMounted, onUnmounted } from 'vue';
+import useHome from '../composables/useHome';
+import { useSearch } from '@/composables/useSearch';
 
 // 使用 useSearch 中的状态和方法
 const {
@@ -269,17 +267,20 @@ const loading = ref(true);
 // 使用 useHome 中的状态和方法
 const {
     categoryList,
-    getCategoryList,
-    newsListData,
     selectedChannel,
+    newsListData,
+    hotNewsListData,
     changeChannel,
     getRandomNewsItems,
-    hotNewsListData,
+    getCategoryList,
     bannerImage,
     bannerVideo,
     weather,
     fetchWeather,
-    hotSearches
+    hotSearches,
+    loading: newsLoading,
+    hasMore,
+    loadMore
 } = useHome();
 
 // 格式化时间戳为易读的日期和时间
@@ -289,17 +290,42 @@ const formatDate = (timestamp) => {
     return date.toLocaleDateString(undefined, options);
 };
 
-// 挂载时初始化数据
+// 添加滚动加载逻辑
+const handleScroll = () => {
+    const scrollHeight = document.documentElement.scrollHeight;
+    const scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
+    const clientHeight = document.documentElement.clientHeight;
+
+    // 当滚动到底部时加载更多
+    if (scrollHeight - scrollTop - clientHeight < 100) {
+        loadMore();
+    }
+};
+
 onMounted(async () => {
     loading.value = true;
-    await getCategoryList();
-    await getRandomNewsItems();
-    await fetchWeather();
+    try {
+        await fetchWeather();
+        await getCategoryList();
+        await getRandomNewsItems();
 
-    if (categoryList.value.length > 0) {
-        changeChannel(categoryList.value[0]);
+        if (categoryList.value && categoryList.value.length > 0) {
+            selectedChannel.value = categoryList.value[0];
+            await changeChannel(categoryList.value[0]);
+        }
+
+        // 添加滚动事件监听
+        window.addEventListener('scroll', handleScroll);
+    } catch (error) {
+        console.error('Error initializing data:', error);
+    } finally {
+        loading.value = false;
     }
-    loading.value = false;
+});
+
+onUnmounted(() => {
+    // 移除滚动事件监听
+    window.removeEventListener('scroll', handleScroll);
 });
 
 </script>
@@ -344,5 +370,40 @@ onMounted(async () => {
 .text-display p {
     margin: 0;
     color: #333;
+}
+
+.pagination-container {
+    margin-top: 20px;
+    display: flex;
+    justify-content: center;
+    padding: 20px 0;
+}
+
+:deep(.el-pagination) {
+    --el-pagination-button-bg-color: #fff;
+    --el-pagination-hover-color: #409EFF;
+}
+
+:deep(.el-pagination .el-pagination__total) {
+    margin-right: 16px;
+}
+
+:deep(.el-pagination .el-pagination__sizes) {
+    margin-right: 16px;
+}
+
+:deep(.el-pagination .el-pagination__jump) {
+    margin-left: 16px;
+}
+
+.loading-more,
+.no-more {
+    text-align: center;
+    padding: 20px;
+    color: #999;
+}
+
+.loading-more {
+    color: #666;
 }
 </style>
